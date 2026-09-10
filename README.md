@@ -9,7 +9,16 @@
    → ③「田畑 辰朗」の3Dロゴ＋事業メニューが出現 → ④ タップして各ページへ
 ```
 
-現在のメニュー： **NO FOOTBALL** / **カタチラボ** / **3D戦術ボード**
+現在のメニュー： **NO FOOTBALL** / **カタチラボ** / **3D戦術ボード（FUQAN BOARD）**
+
+## 🌐 公開URL
+
+**https://tabatatsu109-netizen.github.io/ar-meishi/**
+
+- 名刺なしで見た目だけ確認 → <https://tabatatsu109-netizen.github.io/ar-meishi/?demo=1>
+- マーカー判定ツール → <https://tabatatsu109-netizen.github.io/ar-meishi/tools/compile.html>
+
+`main` ブランチに push すると自動で反映されます（GitHub Pages）。
 
 ## いま入っているもの
 
@@ -22,6 +31,7 @@
 | `assets/logo.svg` | 中央に立体表示するロゴ（任意） |
 | `assets/logos/*.png` | 各事業のアイコン（`nof` / `katachi` / `tactics`・生成済み） |
 | `contact.vcf` | 「連絡先を保存」で配布されるvCard |
+| `assets/qr_ar.svg` / `.png` | **名刺に載せるQRコード**（公開URL入り・NFマーク付き） |
 | `tools/compile.html` | **マーカー判定ツール**（`targets.mind` の生成＋認識できるか判定） |
 
 技術構成： **MindAR.js 1.2.5**（画像認識・MIT・無料） + **Three.js 0.160**。
@@ -152,12 +162,24 @@ const MENU = [
 - **Netlify Drop** … https://app.netlify.com/drop にフォルダをドラッグするだけ。最速
 - **GitHub Pages / Cloudflare Pages / Vercel** … いずれも可
 
-### 5. 名刺からの導線
+### 5. 名刺からの導線（QRコード）
 
-公開URLを名刺の裏（またはロゴの下）に。
+公開URL入りのQRコードを生成済みです。
 
-- **QRコード** … 確実・低コスト。「Scan to AR」の文言を添える
-- **NFCタグ** … かざすだけ。名刺に貼り込む。単価は上がるが体験は最短
+| ファイル | 用途 |
+|---|---|
+| `assets/qr_ar.svg` | **印刷用（推奨）**。ベクターなので何倍に拡大しても劣化しない |
+| `assets/qr_ar.png` | 1800×1800px。ラスターで扱いたいとき用 |
+
+- 中身： `https://tabatatsu109-netizen.github.io/ar-meishi/`
+- 誤り訂正レベル **H**（約30%の欠損まで復元可）。中央にNFマークを入れても読めます
+- 読み取りテスト済み：**120px相当（約8.7mm）まで読み取り成功**。
+  名刺の15mm前後なら十分な余裕があります
+
+現行デザインのQRと同じ位置・同じサイズで差し替えれば、レイアウトを変えずに済みます。
+
+> **差し替えたら `targets.mind` の作り直しを忘れずに。**
+> QRの絵柄が変わる＝マーカー画像が変わる、ということです。
 
 ---
 
