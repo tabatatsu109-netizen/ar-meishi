@@ -1,0 +1,259 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>マーカー判定ツール</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body { margin:0; padding:28px 20px 80px; background:#080b11; color:#e6eef8;
+    font-family:"Hiragino Sans","Noto Sans JP",system-ui,sans-serif; line-height:1.7; }
+  .wrap { max-width:980px; margin:0 auto; }
+  h1 { font-size:19px; margin:0 0 6px; letter-spacing:.02em; }
+  .lead { margin:0 0 26px; font-size:13px; color:#8496aa; }
+
+  #drop { border:1.5px dashed rgba(140,190,230,.4); border-radius:18px; padding:44px 24px;
+    text-align:center; cursor:pointer; transition:.2s; background:rgba(20,30,44,.4); }
+  #drop.hot { border-color:#7fc6ef; background:rgba(40,70,100,.45); }
+  #drop b { display:block; font-size:15px; margin-bottom:6px; }
+  #drop span { font-size:12px; color:#7f92a6; }
+
+  #bar { height:4px; border-radius:2px; background:rgba(255,255,255,.1); margin:22px 0 0; display:none; }
+  #bar i { display:block; height:100%; width:0; border-radius:2px;
+    background:linear-gradient(90deg,#7fc6ef,#a6e3a1); transition:width .25s; }
+  #status { font-size:12.5px; color:#8fa4b8; margin-top:10px; min-height:20px; }
+
+  .card { background:rgba(16,23,34,.85); border:1px solid rgba(255,255,255,.09);
+    border-radius:16px; padding:22px 24px; margin-top:20px; }
+  .card h2 { font-size:14px; margin:0 0 14px; letter-spacing:.1em; color:#9fc6e4; font-weight:700; }
+
+  table { width:100%; border-collapse:collapse; font-size:13px; }
+  th, td { text-align:left; padding:9px 8px; border-bottom:1px solid rgba(255,255,255,.07); }
+  th { color:#7f92a6; font-weight:600; font-size:11.5px; letter-spacing:.08em; }
+  td.num { font-variant-numeric:tabular-nums; font-weight:700; }
+
+  .verdict { display:flex; align-items:center; gap:18px; flex-wrap:wrap; }
+  .grade { font-size:46px; font-weight:800; line-height:1; }
+  .verdict p { margin:0; font-size:13.5px; color:#b9c9d8; flex:1; min-width:260px; }
+
+  canvas { max-width:100%; height:auto; border-radius:10px; display:block;
+    background:#fff; margin-top:6px; }
+  .legend { display:flex; gap:18px; font-size:12px; color:#8496aa; margin:12px 0 4px; flex-wrap:wrap; }
+  .legend i { display:inline-block; width:9px; height:9px; border-radius:50%; margin-right:6px; }
+
+  .dl { display:inline-block; margin-top:6px; text-decoration:none; font-size:14px; font-weight:700;
+    color:#062031; background:linear-gradient(135deg,#dff1ff,#7fc6ef);
+    padding:13px 28px; border-radius:999px; }
+  .note { font-size:12px; color:#7f92a6; margin-top:12px; }
+  .warn { color:#ffc27f; }
+  .ng   { color:#ff9a9a; }
+  .ok   { color:#a6e3a1; }
+  code { background:rgba(255,255,255,.08); padding:1px 6px; border-radius:5px; font-size:12px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<h1>名刺マーカー判定ツール</h1>
+<p class="lead">
+  名刺のデザイン画像から <code>targets.mind</code> を生成し、
+  「そもそも認識できるデザインか」を特徴点の数と分布で判定します。
+  処理はすべてブラウザ内で完結し、画像はどこにも送信されません。
+</p>
+
+<div id="drop">
+  <b>名刺の表面画像をドロップ</b>
+  <span>またはクリックして選択（PNG / JPG・長辺1000px以上推奨）</span>
+  <input type="file" id="file" accept="image/*" hidden>
+</div>
+
+<div id="bar"><i></i></div>
+<div id="status"></div>
+
+<div id="out"></div>
+
+</div>
+
+<script type="module">
+// mind-ar 1.2.5 の dist は ESM なので module として読み込む
+import { Compiler } from 'https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image.prod.js';
+
+const $ = (s) => document.querySelector(s);
+const drop = $('#drop'), fileInput = $('#file');
+
+drop.addEventListener('click', () => fileInput.click());
+drop.addEventListener('dragover', (e) => { e.preventDefault(); drop.classList.add('hot'); });
+drop.addEventListener('dragleave', () => drop.classList.remove('hot'));
+drop.addEventListener('drop', (e) => {
+  e.preventDefault(); drop.classList.remove('hot');
+  if (e.dataTransfer.files[0]) load(e.dataTransfer.files[0]);
+});
+fileInput.addEventListener('change', () => { if (fileInput.files[0]) load(fileInput.files[0]); });
+
+function load(file) {
+  const img = new Image();
+  img.onload = () => compile(img, file.name);
+  img.src = URL.createObjectURL(file);
+}
+
+async function compile(img, name) {
+  $('#out').innerHTML = '';
+  $('#bar').style.display = 'block';
+  $('#bar i').style.width = '0%';
+  $('#status').textContent = '解析中… 画像サイズによっては1分ほどかかります';
+
+  const compiler = new Compiler();
+  const dataList = await compiler.compileImageTargets([img], (p) => {
+    $('#bar i').style.width = p.toFixed(1) + '%';
+  });
+  const buffer = await compiler.exportData();
+
+  $('#status').textContent = '完了';
+  render(dataList[0], buffer, img, name);
+}
+
+function render(data, buffer, img, name) {
+  const out = $('#out');
+
+  /* ---------- 特徴点を集計 ---------- */
+  // matchingData … 名刺を「見つける」ための点（検出のしやすさ）
+  // trackingData … 見つけたあと「追い続ける」ための点（追従の安定性）
+  const matchPerScale = data.matchingData.map(
+    (m) => m.maximaPoints.length + m.minimaPoints.length
+  );
+  const trackPerScale = data.trackingData.map((t) => t.points.length);
+  const matchTotal = matchPerScale.reduce((a, b) => a + b, 0);
+  const trackTotal = trackPerScale.reduce((a, b) => a + b, 0);
+
+  /* ---------- 分布（4×4のうち何マスに点があるか） ---------- */
+  const W0 = data.imageList[0].width, H0 = data.imageList[0].height;
+  const cells = new Set();
+  for (const p of [...data.matchingData[0].maximaPoints, ...data.matchingData[0].minimaPoints]) {
+    cells.add(Math.min(3, (p.x / W0 * 4) | 0) + ',' + Math.min(3, (p.y / H0 * 4) | 0));
+  }
+  const coverage = Math.round(cells.size / 16 * 100);
+
+  /* ---------- 判定 ---------- */
+  let grade, color, msg;
+  if (matchTotal >= 400 && coverage >= 75) {
+    grade = '◎'; color = '#a6e3a1';
+    msg = '十分な特徴点があり、画面内に散っています。安定して認識できる見込みです。';
+  } else if (matchTotal >= 200 && coverage >= 50) {
+    grade = '○'; color = '#8fd3ff';
+    msg = '実用ラインです。まっすぐ・明るい場所ならしっかり認識します。斜めや暗所でやや外れやすい可能性があります。';
+  } else if (matchTotal >= 100) {
+    grade = '△'; color = '#ffc27f';
+    msg = '認識はしますが不安定になりがちです。地紋を敷く・要素を増やすなどで特徴点を足すことを推奨します。';
+  } else {
+    grade = '✕'; color = '#ff9a9a';
+    msg = '特徴点が足りません。このままでは認識が困難です。デザインに情報量を足してください。';
+  }
+
+  /* ---------- 画像そのもののチェック ---------- */
+  const ratio = img.width / img.height;
+  const cardRatio = 91 / 55;
+  const ratioOff = Math.abs(ratio - cardRatio) / cardRatio * 100;
+  const checks = [];
+  checks.push(ratioOff <= 3
+    ? ['縦横比', 'ok', ratio.toFixed(3) + '（名刺 1.655 とほぼ一致）']
+    : ['縦横比', 'warn', ratio.toFixed(3) + ' … 名刺の 1.655 から ' + ratioOff.toFixed(1) + '% ずれています。仕上がりサイズちょうどでトリミングしてください']);
+  checks.push(Math.max(img.width, img.height) >= 1000
+    ? ['解像度', 'ok', img.width + ' × ' + img.height + ' px']
+    : ['解像度', 'warn', img.width + ' × ' + img.height + ' px … 長辺1000px以上を推奨']);
+  checks.push(coverage >= 75
+    ? ['特徴点の分布', 'ok', coverage + '%（16分割中 ' + cells.size + 'マスに分布）']
+    : ['特徴点の分布', coverage >= 50 ? 'warn' : 'ng',
+       coverage + '%（16分割中 ' + cells.size + 'マスのみ）… 点が偏っていると、その部分が画面から外れた瞬間に追従が切れます']);
+
+  out.innerHTML = `
+    <div class="card">
+      <h2>判定</h2>
+      <div class="verdict">
+        <div class="grade" style="color:${color}">${grade}</div>
+        <p>${msg}</p>
+      </div>
+      <table style="margin-top:18px">
+        <tr><th>指標</th><th>値</th><th>意味</th></tr>
+        <tr><td>検出用の特徴点</td><td class="num">${matchTotal}</td><td>名刺を「見つける」精度。多いほど素早く認識</td></tr>
+        <tr><td>追従用の特徴点</td><td class="num">${trackTotal}</td><td>見つけたあと「追い続ける」安定性</td></tr>
+        <tr><td>分布カバー率</td><td class="num">${coverage}%</td><td>点が全面に散っているか（偏りは追従切れの原因）</td></tr>
+      </table>
+      <p class="note">※ 数値はあくまで目安です。最終的な確認は必ず<b>実機テスト</b>で行ってください。</p>
+    </div>
+
+    <div class="card">
+      <h2>チェック項目</h2>
+      <table>
+        ${checks.map(([k, s, v]) => `<tr><td>${k}</td><td colspan="2" class="${s}">${v}</td></tr>`).join('')}
+      </table>
+    </div>
+
+    <div class="card">
+      <h2>特徴点の分布</h2>
+      <div class="legend">
+        <span><i style="background:#ff4d6d"></i>検出用の点（この密度と散らばりが認識のしやすさ）</span>
+        <span><i style="background:#00b3ff"></i>追従用の点</span>
+      </div>
+      <canvas id="viz"></canvas>
+      <p class="note">白いだけの領域には点が立ちません。空白が広い場合は、
+      薄いグレー（3〜5%）の地紋やロゴパターンを敷くと点が増えます。</p>
+    </div>
+
+    <div class="card">
+      <h2>スケール別の内訳</h2>
+      <table>
+        <tr><th>#</th><th>検出用</th><th>追従用</th></tr>
+        ${matchPerScale.map((m, i) =>
+          `<tr><td>${i}</td><td class="num">${m}</td><td class="num">${trackPerScale[i] ?? '-'}</td></tr>`
+        ).join('')}
+      </table>
+      <p class="note">画像は複数の縮小率で解析されます。遠くから写しても認識できるよう、
+      小さいスケールにも点があるのが理想です。</p>
+    </div>
+
+    <div class="card">
+      <h2>ダウンロード</h2>
+      <a class="dl" id="dl" download="targets.mind">targets.mind をダウンロード</a>
+      <p class="note">ダウンロード後、プロジェクトの <code>targets/targets.mind</code> に置いてください。</p>
+    </div>
+  `;
+
+  /* ---------- 可視化 ---------- */
+  const cv = $('#viz');
+  const maxW = 900;
+  const scale = Math.min(1, maxW / img.width);
+  cv.width = img.width * scale;
+  cv.height = img.height * scale;
+  const g = cv.getContext('2d');
+  g.drawImage(img, 0, 0, cv.width, cv.height);
+  g.globalAlpha = 0.55;
+  g.fillStyle = '#fff';
+  g.fillRect(0, 0, cv.width, cv.height);      // 点を見やすくするため下地を薄く
+  g.globalAlpha = 1;
+
+  const t0 = data.trackingData[0], tImg = data.trackingImageList[0];
+  const ts = cv.width / tImg.width;
+  g.fillStyle = '#00b3ff';
+  for (const p of t0.points) {
+    g.beginPath(); g.arc(p.x * ts, p.y * ts, 2.2, 0, Math.PI * 2); g.fill();
+  }
+
+  const ms = cv.width / W0;
+  g.fillStyle = '#ff4d6d';
+  for (const p of [...data.matchingData[0].maximaPoints, ...data.matchingData[0].minimaPoints]) {
+    g.beginPath(); g.arc(p.x * ms, p.y * ms, 2.6, 0, Math.PI * 2); g.fill();
+  }
+
+  // 4×4グリッド
+  g.strokeStyle = 'rgba(0,0,0,.16)'; g.lineWidth = 1;
+  for (let i = 1; i < 4; i++) {
+    g.beginPath(); g.moveTo(cv.width / 4 * i, 0); g.lineTo(cv.width / 4 * i, cv.height); g.stroke();
+    g.beginPath(); g.moveTo(0, cv.height / 4 * i); g.lineTo(cv.width, cv.height / 4 * i); g.stroke();
+  }
+
+  $('#dl').href = URL.createObjectURL(new Blob([buffer]));
+}
+</script>
+</body>
+</html>

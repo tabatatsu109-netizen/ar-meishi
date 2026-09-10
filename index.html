@@ -1,0 +1,626 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>AR BUSINESS CARD</title>
+<style>
+  :root { color-scheme: dark; --ink:#e9f2ff; }
+  * { box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html, body { margin:0; height:100%; overflow:hidden; background:#05070c;
+    font-family:"Hiragino Sans","Noto Sans JP",system-ui,sans-serif; color:var(--ink); }
+
+  #ar { position:fixed; inset:0; }
+
+  /* ---------- スタート画面 ---------- */
+  #start { position:fixed; inset:0; z-index:40; display:flex; flex-direction:column;
+    align-items:center; justify-content:center; gap:20px; padding:32px; text-align:center;
+    background:radial-gradient(120% 90% at 50% 0%, #16202f 0%, #05070c 72%); }
+  #start .mark { font-size:33px; font-weight:800; letter-spacing:.08em;
+    background:linear-gradient(160deg,#ffffff,#7fb6d8 60%,#40708c);
+    -webkit-background-clip:text; background-clip:text; color:transparent; }
+  #start h1 { margin:0; font-size:13px; letter-spacing:.34em; color:#8aa4bd; font-weight:600; }
+  #start p { margin:0; font-size:13px; line-height:2; color:#8494a8; }
+  #go { border:0; border-radius:999px; padding:17px 44px; font-size:15px; font-weight:700;
+    color:#04121f; background:linear-gradient(135deg,#dff1ff,#7fc6ef); cursor:pointer;
+    box-shadow:0 14px 34px -10px rgba(127,198,239,.65); }
+
+  /* ---------- スキャン中ガイド ---------- */
+  #hint { position:fixed; left:50%; top:50%; transform:translate(-50%,-50%); z-index:20;
+    display:flex; flex-direction:column; align-items:center; gap:18px;
+    transition:opacity .45s; pointer-events:none; }
+  #hint .reticle { width:min(66vw,290px); aspect-ratio:91/55; border-radius:10px; position:relative; }
+  #hint .reticle i { position:absolute; width:26px; height:26px; border:2px solid rgba(190,225,255,.85); }
+  #hint .reticle i:nth-child(1){ top:0; left:0; border-right:0; border-bottom:0; border-radius:8px 0 0 0; }
+  #hint .reticle i:nth-child(2){ top:0; right:0; border-left:0; border-bottom:0; border-radius:0 8px 0 0; }
+  #hint .reticle i:nth-child(3){ bottom:0; left:0; border-right:0; border-top:0; border-radius:0 0 0 8px; }
+  #hint .reticle i:nth-child(4){ bottom:0; right:0; border-left:0; border-top:0; border-radius:0 0 8px 0; }
+  #hint span { font-size:13px; padding:9px 20px; border-radius:999px;
+    background:rgba(8,12,20,.68); backdrop-filter:blur(10px);
+    border:1px solid rgba(255,255,255,.12); }
+  #hint.off { opacity:0; }
+
+  /* ---------- 下部の固定アクション ---------- */
+  #util { position:fixed; left:0; right:0; bottom:calc(22px + env(safe-area-inset-bottom)); z-index:20;
+    display:flex; gap:10px; justify-content:center; padding:0 16px;
+    opacity:0; transform:translateY(14px); transition:opacity .4s, transform .4s; pointer-events:none; }
+  #util.on { opacity:1; transform:none; pointer-events:auto; }
+  #util a { text-decoration:none; color:var(--ink); font-size:13px; font-weight:600;
+    padding:12px 22px; border-radius:999px; background:rgba(10,17,28,.74);
+    backdrop-filter:blur(14px); border:1px solid rgba(150,205,240,.32); }
+  #util a:active { background:rgba(127,198,239,.24); }
+
+  /* ---------- 詳細シート ---------- */
+  #sheet { position:fixed; left:0; right:0; bottom:0; z-index:30;
+    transform:translateY(110%); transition:transform .42s cubic-bezier(.16,1,.3,1);
+    padding:0 12px calc(12px + env(safe-area-inset-bottom)); }
+  #sheet.on { transform:none; }
+  #sheet .inner { position:relative; border-radius:22px; padding:26px 24px 22px;
+    background:rgba(10,16,26,.9); backdrop-filter:blur(22px);
+    border:1px solid rgba(255,255,255,.13); box-shadow:0 -20px 60px -20px rgba(0,0,0,.9); }
+  #sheet .bar { width:44px; height:4px; border-radius:2px; background:currentColor;
+    margin-bottom:18px; opacity:.9; }
+  #sheet .sub { font-size:11px; letter-spacing:.22em; opacity:.75; }
+  #sheet h2 { margin:6px 0 10px; font-size:22px; font-weight:700; color:var(--ink); letter-spacing:.01em; }
+  #sheet p { margin:0 0 20px; font-size:13.5px; line-height:1.95; color:#9fb2c6; }
+  #sheet .cta { display:inline-block; text-decoration:none; font-size:14px; font-weight:700;
+    color:#05131f; padding:14px 30px; border-radius:999px; background:currentColor; }
+  #sheet .cta b { color:#05131f; }
+  #sheet .x { position:absolute; top:16px; right:16px; width:34px; height:34px; border-radius:50%;
+    border:1px solid rgba(255,255,255,.18); background:transparent; color:#c8d8e8;
+    font-size:17px; line-height:1; cursor:pointer; }
+
+  .hidden { display:none !important; }
+  #err { position:fixed; inset:auto 14px 14px; z-index:50; padding:14px 16px; border-radius:14px;
+    background:#331420; border:1px solid #7f1d1d; font-size:12px; line-height:1.8; }
+</style>
+</head>
+<body>
+
+<div id="ar"></div>
+
+<div id="hint" class="hidden">
+  <div class="reticle"><i></i><i></i><i></i><i></i></div>
+  <span id="hintText">名刺にカメラをかざしてください</span>
+</div>
+
+<div id="util"></div>
+
+<div id="sheet">
+  <div class="inner">
+    <button class="x" id="sheetClose" aria-label="閉じる">✕</button>
+    <div class="bar"></div>
+    <div class="sub" id="sheetSub"></div>
+    <h2 id="sheetTitle"></h2>
+    <p id="sheetDesc"></p>
+    <a class="cta" id="sheetCta" href="#" target="_blank" rel="noopener"><b>詳しく見る →</b></a>
+  </div>
+</div>
+
+<div id="start">
+  <div class="mark">田畑 辰朗</div>
+  <h1>AR BUSINESS CARD</h1>
+  <p>カメラを起動して、<br>名刺にかざしてください。</p>
+  <button id="go">カメラを起動</button>
+  <p style="font-size:11px;color:#5c6b7d">映像は端末内で処理され、送信されません。</p>
+</div>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+  }
+}
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+import { MindARThree } from 'https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-three.prod.js';
+import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+import { SVGLoader } from 'three/addons/loaders/SVGLoader.js';
+
+/* ==========================================================================
+   ここを書き換えるだけでカスタマイズできます
+   ========================================================================== */
+
+const OWNER = {
+  name:  '田畑 辰朗',
+  kana:  'TATSURO TABATA',
+  brand: 'NO FOOTBALL',
+  role:  'Web / System / Print',
+};
+
+// 中央に浮かぶ3Dロゴ。SVGを置けばそのロゴが、無ければ text が立体化されます
+const LOGO = {
+  svg:   './assets/logo.svg',   // 用意できたらここに配置
+  text:  '田畑 辰朗',            // SVGが無いときに立体化する文字（日本語OK）
+  depth: 0.055,                 // 押し出しの厚み（ロゴ幅を1.0としたときの比率）
+  color: 0xdbe9f5,              // SVG版のときの色
+  metalness: 1.0,
+  roughness: 0.17,
+};
+
+// 名刺の周りに展開するメニュー（順番＝真上から時計回り）
+const MENU = [
+  {
+    id: 'nof',
+    label: 'NO FOOTBALL',
+    sub: 'ONLINE STORE',
+    glyph: 'NF',
+    img: './assets/logos/nof.png',          // 無ければ glyph が使われます
+    color: '#8fd3ff',
+    url: 'https://nofootball.base.shop/',
+    desc: '「NO FOOTBALL, NO LIFE」— ピッチの外でもフットボールを生きる人へ。アパレルと雑貨のオンラインストア。',
+  },
+  {
+    id: 'katachi',
+    label: 'カタチラボ',
+    sub: 'SYSTEM',
+    glyph: '形',
+    img: './assets/logos/katachi.png',
+    color: '#ff9c4a',
+    url: 'https://tabatatsu109-netizen.github.io/katachilabo/index.html',
+    desc: '現場の困りごとを、ブラウザで動くツールに。小さく作って育てる、システム開発の工房です。',
+  },
+  {
+    id: 'tactics',
+    label: '3D戦術ボード',
+    sub: 'FUQAN BOARD',
+    glyph: '⚽',
+    img: './assets/logos/tactics.png',
+    plate: 'light',                         // 白地のロゴなので円を白くする
+    color: '#3fbf6f',
+    url: 'https://grande-tactics-board.web.app/',
+    desc: 'フットボールを、俯瞰する。ブラウザで動く3Dの戦術ボードです。',
+  },
+];
+
+// 下部に常時出るボタン
+const UTIL = [
+  { label: '連絡先を保存', url: './contact.vcf' },
+  { label: 'お問い合わせ', url: 'mailto:info@example.com' },
+];
+
+const LAYOUT = {
+  ringRadius:  0.66,   // 名刺の幅 = 1.0 を基準にした半径
+  iconSize:    0.30,   // アイコン板の幅
+  ringHeight:  0.30,   // 紙からの浮き上がり
+  logoHeight:  0.30,
+  logoScale:   0.58,
+  orbitSpeed:  0.0,    // 0 以外にするとメニューがゆっくり回ります(rad/s)
+};
+
+/* ========================================================================== */
+
+const $ = (s) => document.querySelector(s);
+const easeOut  = (x) => 1 - Math.pow(1 - x, 3);
+const easeBack = (x) => { const c = 1.70158 + 1; return 1 + (c + 1) * Math.pow(x - 1, 3) + c * Math.pow(x - 1, 2); };
+
+$('#util').innerHTML = UTIL
+  .map(u => '<a href="' + u.url + '" target="_blank" rel="noopener">' + u.label + '</a>').join('');
+
+$('#go').addEventListener('click', () => { start().catch(showError); }, { once: true });
+
+function showError(e) {
+  console.error(e);
+  const d = document.createElement('div');
+  d.id = 'err';
+  d.innerHTML = '<b>起動できませんでした</b><br>' + (e.message || e) + '<br>' +
+    '・HTTPS（または localhost）で開いていますか？<br>' +
+    '・カメラを許可しましたか？<br>' +
+    '・targets/targets.mind を配置しましたか？';
+  document.body.appendChild(d);
+  $('#start').classList.remove('hidden');
+}
+
+// ?demo=1 を付けると、名刺・カメラ無しで見た目だけ確認できます
+const DEMO = new URLSearchParams(location.search).has('demo');
+
+async function start() {
+  $('#start').classList.add('hidden');
+  if (!DEMO) $('#hint').classList.remove('hidden');
+
+  let mindar = null, anchor = null, renderer, scene, camera, parent;
+
+  if (DEMO) {
+    renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+    renderer.setSize(innerWidth, innerHeight);
+    $('#ar').appendChild(renderer.domElement);
+
+    scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x090e16);
+    camera = new THREE.PerspectiveCamera(42, innerWidth / innerHeight, 0.01, 100);
+    camera.position.set(0, -1.55, 2.35);
+    camera.lookAt(0, 0.04, 0.30);
+    addEventListener('resize', () => {
+      camera.aspect = innerWidth / innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(innerWidth, innerHeight);
+    });
+
+    parent = new THREE.Group();
+    scene.add(parent);
+    parent.add(new THREE.Mesh(                    // 紙の名刺のかわり
+      new THREE.PlaneGeometry(1, 55 / 91),
+      new THREE.MeshStandardMaterial({ color: 0xeef1f5, roughness: 0.92, metalness: 0 })
+    ));
+  } else {
+    mindar = new MindARThree({
+      container: $('#ar'),
+      imageTargetSrc: './targets/targets.mind',
+      uiLoading: 'no', uiScanning: 'no', uiError: 'no',
+      filterMinCF: 0.0001,   // 小さいほど追従が速い / 大きいほど揺れが減る
+      filterBeta: 0.001,
+    });
+    ({ renderer, scene, camera } = mindar);
+    anchor = mindar.addAnchor(0);
+    parent = anchor.group;
+  }
+
+  renderer.outputColorSpace = THREE.SRGBColorSpace;
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 1.15;
+
+  // クローム質感を出すための環境マップ
+  const pmrem = new THREE.PMREMGenerator(renderer);
+  scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+
+  scene.add(new THREE.HemisphereLight(0xffffff, 0x1a2536, 1.1));
+  const key = new THREE.DirectionalLight(0xffffff, 2.0);
+  key.position.set(0.6, 1.3, 1.6);
+  scene.add(key);
+
+  const root = new THREE.Group();
+  root.visible = false;
+  parent.add(root);
+
+  /* ---------- 名刺の上の光る枠 ---------- */
+  const CARD_ASPECT = 55 / 91;
+  const frame = new THREE.Mesh(
+    frameGeometry(1.03, CARD_ASPECT * 1.03, 0.011),
+    new THREE.MeshBasicMaterial({ color: 0x9fd8ff, transparent: true, opacity: 0, side: THREE.DoubleSide })
+  );
+  frame.position.z = 0.001;
+  root.add(frame);
+
+  /* ---------- 中央の3Dロゴ ---------- */
+  const logo = new THREE.Group();
+  logo.position.set(0, 0, LAYOUT.logoHeight);
+  root.add(logo);
+  buildLogo().then(mesh => logo.add(mesh)).catch(e => console.warn('logo:', e));
+
+  /* ---------- 周囲のメニュー ---------- */
+  const ring = new THREE.Group();
+  ring.position.set(0, 0, LAYOUT.ringHeight);
+  root.add(ring);
+
+  const items = MENU.map((m, i) => {
+    const a = Math.PI / 2 - i * (Math.PI * 2 / MENU.length);   // 真上から時計回り
+    const tex = makeIconTexture(m);
+    const mesh = new THREE.Mesh(
+      new THREE.PlaneGeometry(LAYOUT.iconSize, LAYOUT.iconSize * 1.28),
+      new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false })
+    );
+    mesh.userData.menu = m;
+    mesh.renderOrder = 10;
+    ring.add(mesh);
+    return { mesh, angle: a, phase: i * 1.1, index: i };
+  });
+
+  /* ---------- 認識イベント ---------- */
+  let found = false, t0 = 0;
+
+  const onFound = () => {
+    found = true; t0 = performance.now();
+    root.visible = true;
+    $('#hint').classList.add('off');
+    $('#util').classList.add('on');
+  };
+
+  if (DEMO) {
+    onFound();
+  } else {
+    anchor.onTargetFound = onFound;
+    anchor.onTargetLost = () => {
+      found = false;
+      root.visible = false;
+      $('#hint').classList.remove('off');
+      $('#util').classList.remove('on');
+      closeSheet();
+    };
+  }
+
+  /* ---------- タップ判定 ---------- */
+  const ray = new THREE.Raycaster();
+  const ndc = new THREE.Vector2();
+  let down = null;
+  const canvas = renderer.domElement;
+
+  canvas.addEventListener('pointerdown', (e) => { down = { x: e.clientX, y: e.clientY, t: performance.now() }; });
+  canvas.addEventListener('pointerup', (e) => {
+    if (!down) return;
+    const moved = Math.hypot(e.clientX - down.x, e.clientY - down.y);
+    const dt = performance.now() - down.t;
+    down = null;
+    if (moved > 14 || dt > 700 || !found) return;
+
+    const r = canvas.getBoundingClientRect();
+    ndc.x = ((e.clientX - r.left) / r.width) * 2 - 1;
+    ndc.y = -((e.clientY - r.top) / r.height) * 2 + 1;
+    ray.setFromCamera(ndc, camera);
+    const hit = ray.intersectObjects(items.map(i => i.mesh), false)[0];
+    if (hit) openSheet(hit.object.userData.menu);
+  });
+
+  /* ---------- 描画ループ ---------- */
+  const camPos = new THREE.Vector3();
+
+  renderer.setAnimationLoop(() => {
+    const now = performance.now();
+    const t = now / 1000;
+    const elapsed = now - t0;
+
+    if (found) {
+      // 枠 → ロゴ → アイコンの順に立ち上がる
+      const pf = easeOut(clamp01(elapsed / 420));
+      frame.material.opacity = 0.85 * pf;
+
+      const pl = easeOut(clamp01((elapsed - 120) / 620));
+      logo.scale.setScalar(Math.max(0.0001, LAYOUT.logoScale * pl));
+      logo.position.z = LAYOUT.logoHeight * pl;
+      logo.rotation.y = Math.sin(t * 0.55) * 0.42 + (1 - pl) * 1.6;
+      logo.position.y = Math.sin(t * 1.1) * 0.012;
+
+      ring.rotation.z = t * LAYOUT.orbitSpeed;
+
+      for (const it of items) {
+        const p = clamp01((elapsed - 300 - it.index * 80) / 520);
+        const e = p <= 0 ? 0 : easeBack(p);
+        const bob = Math.sin(t * 1.3 + it.phase) * 0.018;
+        const rad = LAYOUT.ringRadius * e;
+        it.mesh.position.set(Math.cos(it.angle) * rad, Math.sin(it.angle) * rad + bob, 0);
+        it.mesh.scale.setScalar(Math.max(0.0001, e));
+        it.mesh.material.opacity = clamp01(p * 1.3);
+
+        // 常にカメラを向く（ビルボード）
+        camera.getWorldPosition(camPos);
+        it.mesh.parent.worldToLocal(camPos);
+        it.mesh.lookAt(camPos);
+      }
+
+      if (DEMO) parent.rotation.x = Math.sin(t * 0.32) * 0.13;
+    }
+
+    renderer.render(scene, camera);
+  });
+
+  if (!DEMO) await mindar.start();
+}
+
+/* ==========================================================================
+   パーツ生成
+   ========================================================================== */
+
+function clamp01(x) { return x < 0 ? 0 : x > 1 ? 1 : x; }
+
+/** 中央ロゴ：SVGがあれば押し出し、無ければ文字を立体化（日本語対応） */
+async function buildLogo() {
+  try {
+    const data = await new SVGLoader().loadAsync(LOGO.svg);
+    if (!data.paths.length) throw new Error('empty svg');
+    const mat = new THREE.MeshStandardMaterial({
+      color: LOGO.color, metalness: LOGO.metalness, roughness: LOGO.roughness,
+      envMapIntensity: 1.9,
+    });
+    const group = new THREE.Group();
+    for (const path of data.paths) {
+      for (const shape of SVGLoader.createShapes(path)) {
+        group.add(new THREE.Mesh(new THREE.ExtrudeGeometry(shape, {
+          depth: 14, bevelEnabled: true, bevelThickness: 2, bevelSize: 1.6, bevelSegments: 3,
+        }), mat));
+      }
+    }
+    group.scale.y = -1;                      // SVGはY軸が下向き
+    return centerAndNormalize(group);
+  } catch (_) {
+    return buildTextLogo(LOGO.text);         // SVGが無ければ文字から生成
+  }
+}
+
+/**
+ * 文字を立体化する。日本語のtypefaceフォント（数MB）を読ませずに済むよう、
+ * 同じ字形の板を奥行き方向に重ねて押し出しを再現している。
+ * 幅が 1.0 になるよう正規化済みのグループを返す。
+ */
+function buildTextLogo(text) {
+  const FS = 240, PAD = 34;
+  const FONT = '800 ' + FS + 'px "Hiragino Sans","Noto Sans JP","Yu Gothic",sans-serif';
+
+  const probe = document.createElement('canvas').getContext('2d');
+  probe.font = FONT;
+  const W = Math.ceil(probe.measureText(text).width) + PAD * 2;
+  const H = Math.ceil(FS * 1.42);
+
+  const paint = (fill) => {
+    const c = document.createElement('canvas');
+    c.width = W; c.height = H;
+    const g = c.getContext('2d');
+    g.font = FONT;
+    g.textAlign = 'center';
+    g.textBaseline = 'middle';
+    g.fillStyle = fill(g);
+    g.fillText(text, W / 2, H / 2);
+    const tex = new THREE.CanvasTexture(c);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    tex.anisotropy = 8;
+    return tex;
+  };
+
+  // 前面：クローム風のグラデーション
+  const faceTex = paint((g) => {
+    const grad = g.createLinearGradient(0, H * 0.18, 0, H * 0.86);
+    grad.addColorStop(0.00, '#ffffff');
+    grad.addColorStop(0.34, '#cddeee');
+    grad.addColorStop(0.49, '#5d7c96');
+    grad.addColorStop(0.53, '#9dbcd2');
+    grad.addColorStop(0.74, '#f2f9ff');
+    grad.addColorStop(1.00, '#9db8cc');
+    return grad;
+  });
+  // 側面用：白いシルエット（レイヤーごとに色を掛けて暗くする）
+  const sideTex = paint(() => '#ffffff');
+
+  const geo = new THREE.PlaneGeometry(1, H / W);
+  const group = new THREE.Group();
+  const LAYERS = 30;
+  const depth = LOGO.depth;
+
+  for (let i = LAYERS - 1; i >= 0; i--) {
+    const t = i / (LAYERS - 1);              // 0 = 手前, 1 = 最奥
+    const mat = i === 0
+      ? new THREE.MeshBasicMaterial({ map: faceTex, transparent: true, alphaTest: 0.42 })
+      : new THREE.MeshBasicMaterial({
+          map: sideTex, transparent: true, alphaTest: 0.42,
+          color: new THREE.Color().setHSL(0.57, 0.20, 0.40 * (1 - t) + 0.07),
+        });
+    const layer = new THREE.Mesh(geo, mat);
+    layer.position.z = -depth * t;
+    group.add(layer);
+  }
+
+  // 押し出しの中心を原点に合わせる
+  group.position.z = depth / 2;
+  return new THREE.Group().add(group);
+}
+
+/** 幅が 1.0 になるよう正規化して原点に中心を合わせる */
+function centerAndNormalize(group) {
+  const box = new THREE.Box3().setFromObject(group);
+  const size = box.getSize(new THREE.Vector3());
+  const center = box.getCenter(new THREE.Vector3());
+  group.children.forEach(c => c.position.sub(center));
+  const wrap = new THREE.Group().add(group);
+  wrap.scale.setScalar(1 / Math.max(size.x, 0.0001));
+  return wrap;
+}
+
+/** メニューアイコン（丸いガラスボタン＋ラベル）を Canvas で描く */
+function makeIconTexture(m) {
+  const W = 420, H = 538;
+  const c = document.createElement('canvas');
+  c.width = W; c.height = H;
+  const g = c.getContext('2d');
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = 8;
+
+  const draw = (img) => {
+    g.clearRect(0, 0, W, H);
+    const cx = W / 2, cy = 190, r = 150;
+
+    // グロー
+    const glow = g.createRadialGradient(cx, cy, r * 0.6, cx, cy, r * 1.55);
+    glow.addColorStop(0, hexA(m.color, 0.34));
+    glow.addColorStop(1, hexA(m.color, 0));
+    g.fillStyle = glow;
+    g.beginPath(); g.arc(cx, cy, r * 1.55, 0, Math.PI * 2); g.fill();
+
+    // 円のプレート（既定は暗いガラス。plate:'light' で白地になる）
+    const light = m.plate === 'light';
+    const body = g.createLinearGradient(cx - r, cy - r, cx + r, cy + r);
+    if (light) {
+      body.addColorStop(0, 'rgba(255,255,255,.98)');
+      body.addColorStop(1, 'rgba(226,235,245,.95)');
+    } else {
+      body.addColorStop(0, 'rgba(30,44,64,.94)');
+      body.addColorStop(1, 'rgba(12,20,32,.9)');
+    }
+    g.beginPath(); g.arc(cx, cy, r, 0, Math.PI * 2);
+    g.fillStyle = body; g.fill();
+    g.lineWidth = 5; g.strokeStyle = hexA(m.color, 0.78); g.stroke();
+
+    // 上部ハイライト
+    g.save();
+    g.beginPath(); g.arc(cx, cy, r - 3, 0, Math.PI * 2); g.clip();
+    const hl = g.createLinearGradient(0, cy - r, 0, cy);
+    hl.addColorStop(0, 'rgba(255,255,255,.28)');
+    hl.addColorStop(1, 'rgba(255,255,255,0)');
+    g.fillStyle = hl; g.fillRect(0, cy - r, W, r);
+    g.restore();
+
+    // 中身：ロゴ画像 or 文字
+    if (img) {
+      const box = r * (light ? 1.42 : 1.16);   // 白プレートは円いっぱいに使う
+      const s = Math.min(box / img.width, box / img.height);
+      g.save();
+      g.beginPath(); g.arc(cx, cy, r - 3, 0, Math.PI * 2); g.clip();
+      g.drawImage(img, cx - img.width * s / 2, cy - img.height * s / 2, img.width * s, img.height * s);
+      g.restore();
+    } else {
+      g.textAlign = 'center'; g.textBaseline = 'middle';
+      g.fillStyle = '#ffffff';
+      const len = [...m.glyph].length;
+      g.font = '700 ' + (len > 2 ? 74 : len > 1 ? 96 : 118) + 'px "Hiragino Sans","Noto Sans JP",sans-serif';
+      g.fillText(m.glyph, cx, cy + 4);
+    }
+
+    // ラベル
+    g.textAlign = 'center'; g.textBaseline = 'top';
+    g.fillStyle = '#ffffff';
+    g.font = '700 ' + ([...m.label].length > 7 ? 40 : 48) + 'px "Hiragino Sans","Noto Sans JP",sans-serif';
+    g.shadowColor = 'rgba(0,0,0,.85)'; g.shadowBlur = 12;
+    g.fillText(m.label, cx, 372);
+
+    g.fillStyle = hexA(m.color, 1);
+    g.font = '700 32px system-ui,sans-serif';
+    g.fillText(m.sub || '', cx, 430);
+    g.shadowBlur = 0;
+
+    tex.needsUpdate = true;
+  };
+
+  draw(null);
+  if (m.img) {
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => draw(img);
+    img.src = m.img;      // 見つからなければ glyph 版のまま
+  }
+  return tex;
+}
+
+function hexA(hex, a) {
+  const n = parseInt(hex.slice(1), 16);
+  return 'rgba(' + ((n >> 16) & 255) + ',' + ((n >> 8) & 255) + ',' + (n & 255) + ',' + a + ')';
+}
+
+function frameGeometry(w, h, th) {
+  const s = new THREE.Shape();
+  s.moveTo(-w/2, -h/2); s.lineTo(w/2, -h/2); s.lineTo(w/2, h/2); s.lineTo(-w/2, h/2); s.closePath();
+  const hole = new THREE.Path();
+  const iw = w/2 - th, ih = h/2 - th;
+  hole.moveTo(-iw, -ih); hole.lineTo(iw, -ih); hole.lineTo(iw, ih); hole.lineTo(-iw, ih); hole.closePath();
+  s.holes.push(hole);
+  return new THREE.ShapeGeometry(s);
+}
+
+/* ==========================================================================
+   詳細シート
+   ========================================================================== */
+
+function openSheet(m) {
+  const sheet = $('#sheet');
+  sheet.querySelector('.inner').style.color = m.color;
+  $('#sheetSub').textContent = m.sub || '';
+  $('#sheetTitle').textContent = m.label;
+  $('#sheetDesc').textContent = m.desc || '';
+  $('#sheetCta').href = m.url;
+  sheet.classList.add('on');
+}
+function closeSheet() { $('#sheet').classList.remove('on'); }
+$('#sheetClose').addEventListener('click', closeSheet);
+</script>
+</body>
+</html>
